@@ -200,7 +200,7 @@ If you use this code in your research, please cite it as:
 
 ```
 @software{radargan2023,
-  author = {Your Name},
+  author = {Félix Suaréz},
   title = {RadarGAN: Generative Adversarial Networks for Radar Signal Synthesis},
   year = {2023},
   url = {https://github.com/your-username/RadarGAN}
