@@ -1,0 +1,6 @@
+{
+    "real_accuracy": 0.603125,
+    "fake_accuracy": 0.739375,
+    "overall_accuracy": 0.67125,
+    "samples_evaluated": 6400
+}

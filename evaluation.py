@@ -133,6 +133,10 @@ def evaluate_by_modulation(generator, dataloader, device, output_dir):
         real_samples = []
         real_sig_types = []
         
+        # Limit the number of samples to process
+        max_samples_per_mod = 500  # Reduced sample size to prevent memory issues
+        sample_count = 0
+        
         for batch in dataloader:
             signals = batch['signal']
             mod_types = batch['mod_type']
@@ -141,18 +145,25 @@ def evaluate_by_modulation(generator, dataloader, device, output_dir):
             # Filter by modulation type
             mask = (mod_types == mod_idx)
             if mask.sum() > 0:
-                real_samples.append(signals[mask])
-                real_sig_types.append(sig_types[mask])
+                selected_signals = signals[mask]
+                selected_sig_types = sig_types[mask]
+                
+                real_samples.append(selected_signals)
+                real_sig_types.append(selected_sig_types)
+                
+                sample_count += len(selected_signals)
+                if sample_count >= max_samples_per_mod:
+                    break
         
         if not real_samples:
             print(f"No samples found for modulation type {mod_name}")
             continue
         
         # Concatenate real samples
-        real_samples = torch.cat(real_samples, dim=0)
-        real_sig_types = torch.cat(real_sig_types, dim=0)
+        real_samples = torch.cat(real_samples, dim=0)[:max_samples_per_mod]
+        real_sig_types = torch.cat(real_sig_types, dim=0)[:max_samples_per_mod]
         
-        # Generate fake samples
+        # Generate fake samples - use a smaller number
         num_real = real_samples.size(0)
         fake_samples, _, _ = generate_signals(
             generator,
@@ -169,9 +180,11 @@ def evaluate_by_modulation(generator, dataloader, device, output_dir):
         mmd = calculate_mmd(real_np, fake_np)
         
         # Calculate Wasserstein distance for each component and average
+        # Use sampling to reduce computation
         w_distances = []
+        sample_indices = np.random.choice(real_np.shape[2], min(50, real_np.shape[2]), replace=False)
         for i in range(real_np.shape[1]):  # For each channel (I/Q)
-            for j in range(real_np.shape[2]):  # For each time point
+            for j in sample_indices:  # For sampled time points
                 w_dist = wasserstein_distance(real_np[:, i, j], fake_np[:, i, j])
                 w_distances.append(w_dist)
         avg_w_distance = np.mean(w_distances)
@@ -206,6 +219,10 @@ def evaluate_by_modulation(generator, dataloader, device, output_dir):
         plt.tight_layout()
         plt.savefig(os.path.join(output_dir, f'examples_{mod_name}.png'))
         plt.close()
+        
+        # Clear memory
+        del real_samples, real_sig_types, fake_samples, real_np, fake_np
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
     
     # Metrics summary
     summary = {}
@@ -265,23 +282,47 @@ def evaluate_adversarial_discriminator(generator, discriminator, dataloader, dev
     real_scores = []
     fake_scores = []
     
+    # Maximum number of batches to process to avoid memory issues
+    max_batches = 50
+    batch_count = 0
+    
+    # Process in smaller chunks
+    chunk_size = 16  # Smaller batch size
+    
     # Evaluate real and generated signals
     with torch.no_grad():
         for batch in dataloader:
+            # Process in chunks to save memory
             real_signals = batch['signal'].to(device)
             mod_types = batch['mod_type'].to(device)
             sig_types = batch['sig_type'].to(device)
             batch_size = real_signals.size(0)
             
-            # Evaluate real signals
-            real_pred = discriminator(real_signals, mod_types, sig_types)
-            real_scores.append(real_pred.cpu().numpy())
+            # Process in smaller chunks if needed
+            for i in range(0, batch_size, chunk_size):
+                end_idx = min(i + chunk_size, batch_size)
+                chunk_real = real_signals[i:end_idx]
+                chunk_mod = mod_types[i:end_idx]
+                chunk_sig = sig_types[i:end_idx]
+                chunk_size_actual = chunk_real.size(0)
+                
+                # Evaluate real signals
+                real_pred = discriminator(chunk_real, chunk_mod, chunk_sig)
+                real_scores.append(real_pred.cpu().numpy())
+                
+                # Generate and evaluate fake signals
+                z = torch.randn(chunk_size_actual, generator.noise_dim, device=device)
+                fake_signals = generator(z, chunk_mod, chunk_sig)
+                fake_pred = discriminator(fake_signals, chunk_mod, chunk_sig)
+                fake_scores.append(fake_pred.cpu().numpy())
+                
+                # Free memory
+                del chunk_real, chunk_mod, chunk_sig, fake_signals
+                torch.cuda.empty_cache() if torch.cuda.is_available() else None
             
-            # Generate and evaluate fake signals
-            z = torch.randn(batch_size, generator.noise_dim, device=device)
-            fake_signals = generator(z, mod_types, sig_types)
-            fake_pred = discriminator(fake_signals, mod_types, sig_types)
-            fake_scores.append(fake_pred.cpu().numpy())
+            batch_count += 1
+            if batch_count >= max_batches:
+                break
     
     # Concatenate results
     real_scores = np.concatenate(real_scores).flatten()
@@ -297,9 +338,10 @@ def evaluate_adversarial_discriminator(generator, discriminator, dataloader, dev
     
     # Save metrics
     metrics = {
-        'real_accuracy': real_accuracy,
-        'fake_accuracy': fake_accuracy,
-        'overall_accuracy': overall_accuracy
+        'real_accuracy': float(real_accuracy),  # Convert to float for JSON serialization
+        'fake_accuracy': float(fake_accuracy),
+        'overall_accuracy': float(overall_accuracy),
+        'samples_evaluated': int(len(real_scores) + len(fake_scores))
     }
     
     with open(os.path.join(output_dir, 'discriminator_metrics.json'), 'w') as f:
