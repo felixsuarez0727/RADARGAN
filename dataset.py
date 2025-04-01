@@ -35,7 +35,7 @@ class RadarSignalDataset(Dataset):
         """
         Args:
             hdf5_file (str): Path to HDF5 file with signals
-            signal_length (int): Length of signal to process (will be truncated or padded)
+            signal_length (int): Length of signal to process 
             normalize (bool): Whether to normalize the signals
             transform (callable, optional): Additional transformations
         """

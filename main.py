@@ -1,10 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
-"""
-Main script for training and generating signals with RadarGAN
-"""
-
 import argparse
 import os
 import sys
@@ -30,11 +23,12 @@ def main():
     train_parser.add_argument("--lr", type=float, default=0.0002, help="Learning rate")
     train_parser.add_argument("--signal_length", type=int, default=128, help="Signal length")
     train_parser.add_argument("--noise_dim", type=int, default=100, help="Noise vector dimension")
+    train_parser.add_argument("--cuda", action="store_true", help="Use CUDA if available")
     train_parser.add_argument("--no_cuda", action="store_true", help="Disable CUDA")
+    train_parser.add_argument("--num_workers", type=int, default=4, help="Number of workers for data loading")
     train_parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     train_parser.add_argument("--beta1", type=float, default=0.5, help="Beta1 for Adam optimizer")
-    train_parser.add_argument("--num_workers", type=int, default=4, help="Number of workers for data loading")
-    
+
     # Command: generate
     gen_parser = subparsers.add_parser("generate", help="Generate signals using a trained model")
     gen_parser.add_argument("--checkpoint", type=str, required=True, help="Path to generator checkpoint")
@@ -56,6 +50,12 @@ def main():
     
     args = parser.parse_args()
     
+    # Device selection
+    if args.no_cuda:
+        device = torch.device("cpu")
+    else:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
     if args.command is None:
         parser.print_help()
         sys.exit(1)
@@ -63,9 +63,12 @@ def main():
     # Execute the corresponding command
     if args.command == "train":
         from training import train_gan
-        print("== Starting RadarGAN training ==")
+        print(f"== Starting RadarGAN training on {device} ==")
         
-        # Check if we want to use synthetic data
+        # Add device to args
+        args.device = device
+        
+        # Check if synthetic data is requested
         if args.data_file.lower() == "synthetic":
             args.use_synthetic = True
             print("Using synthetic data for training")
