@@ -1,137 +1,66 @@
 import torch
 import torch.nn as nn
-import numpy as np
-
-class Generator(nn.Module):
-    """
-    Base Generator for radar signal generation
-    """
-    def __init__(self, noise_dim=100, signal_length=128, num_channels=2):
-        super(Generator, self).__init__()
-        
-        self.init_size = signal_length // 4
-        self.noise_dim = noise_dim
-        
-        self.fc = nn.Sequential(
-            nn.Linear(noise_dim, 128 * self.init_size),
-            nn.BatchNorm1d(128 * self.init_size),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-        
-        self.conv_blocks = nn.Sequential(
-            nn.ConvTranspose1d(128, 64, kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm1d(64),
-            nn.LeakyReLU(0.2, inplace=True),
-            
-            nn.ConvTranspose1d(64, 32, kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm1d(32),
-            nn.LeakyReLU(0.2, inplace=True),
-            
-            nn.ConvTranspose1d(32, num_channels, kernel_size=3, stride=1, padding=1),
-            nn.Tanh()
-        )
-
-    def forward(self, z):
-        out = self.fc(z)
-        out = out.view(out.shape[0], 128, self.init_size)
-        out = self.conv_blocks(out)
-        return out
-
-class Discriminator(nn.Module):
-    """
-    Base Discriminator for radar signal classification
-    """
-    def __init__(self, signal_length=128, num_channels=2):
-        super(Discriminator, self).__init__()
-
-        self.conv_blocks = nn.Sequential(
-            nn.Conv1d(num_channels, 32, kernel_size=3, stride=1, padding=1),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Dropout(0.25),
-            nn.AvgPool1d(2),
-            
-            nn.Conv1d(32, 64, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm1d(64),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Dropout(0.25),
-            nn.AvgPool1d(2),
-            
-            nn.Conv1d(64, 128, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm1d(128),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Dropout(0.25),
-            nn.AvgPool1d(2),
-        )
-        
-        ds_size = signal_length // 8
-        
-        self.fc = nn.Sequential(
-            nn.Linear(128 * ds_size, 256),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Dropout(0.5),
-            nn.Linear(256, 1),
-            nn.Sigmoid()
-        )
-
-    def forward(self, img):
-        out = self.conv_blocks(img)
-        out = out.view(out.shape[0], -1)
-        validity = self.fc(out)
-        return validity
+import torch.nn.functional as F
 
 class ConditionalGenerator(nn.Module):
     """
-    Conditional Generator for generating specific signal types
+    Optimized Conditional Generator for radar signal generation
     """
-    def __init__(self, noise_dim=100, signal_length=128, num_channels=2, 
-                 num_mod_types=6, num_sig_types=8):
+    def __init__(self, 
+                 noise_dim=100, 
+                 signal_length=128, 
+                 num_channels=2, 
+                 num_mod_types=6, 
+                 num_sig_types=8):
         super(ConditionalGenerator, self).__init__()
         
         self.init_size = signal_length // 4
         self.noise_dim = noise_dim
         
-        # Enhanced embedding layers with more capacity
+        # More efficient embedding layers
         self.mod_embedding = nn.Sequential(
             nn.Embedding(num_mod_types, 40),
             nn.Linear(40, 40),
-            nn.LeakyReLU(0.2)
+            nn.SiLU()  # Faster activation function
         )
+        
         self.sig_embedding = nn.Sequential(
             nn.Embedding(num_sig_types, 40),
             nn.Linear(40, 40),
-            nn.LeakyReLU(0.2)
+            nn.SiLU()
         )
         
-        # Multi-layer initial processing with more complexity
+        # Initial processing with more efficient normalization
         self.fc = nn.Sequential(
             nn.Linear(noise_dim + 80, 256 * self.init_size),
-            nn.BatchNorm1d(256 * self.init_size),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Dropout(0.3)
+            nn.LayerNorm(256 * self.init_size),  # More GPU-friendly normalization
+            nn.SiLU(),
+            nn.Dropout(0.2)  # Slightly reduced dropout
         )
         
         # Enhanced transposed convolutional layers
         self.conv_blocks = nn.Sequential(
-            nn.ConvTranspose1d(256, 128, kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm1d(128),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Dropout(0.3),
+            # First block with spectral normalization
+            nn.utils.spectral_norm(nn.ConvTranspose1d(256, 128, kernel_size=4, stride=2, padding=1)),
+            nn.GroupNorm(32, 128),  # More efficient normalization
+            nn.SiLU(),
+            nn.Dropout(0.2),
             
-            nn.ConvTranspose1d(128, 64, kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm1d(64),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Dropout(0.3),
+            nn.utils.spectral_norm(nn.ConvTranspose1d(128, 64, kernel_size=4, stride=2, padding=1)),
+            nn.GroupNorm(16, 64),
+            nn.SiLU(),
+            nn.Dropout(0.2),
             
-            nn.ConvTranspose1d(64, 32, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm1d(32),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.utils.spectral_norm(nn.ConvTranspose1d(64, 32, kernel_size=3, stride=1, padding=1)),
+            nn.GroupNorm(8, 32),
+            nn.SiLU(),
             
             nn.ConvTranspose1d(32, num_channels, kernel_size=3, stride=1, padding=1),
             nn.Tanh()
         )
 
     def forward(self, z, mod_type, sig_type):
-        # Get embeddings for conditions with increased complexity
+        # Get embeddings for conditions
         mod_embed = self.mod_embedding(mod_type)
         sig_embed = self.sig_embedding(sig_type)
         
@@ -147,54 +76,57 @@ class ConditionalGenerator(nn.Module):
 
 class ConditionalDiscriminator(nn.Module):
     """
-    Conditional Discriminator with improved feature extraction
+    Optimized Conditional Discriminator with improved feature extraction
     """
-    def __init__(self, signal_length=128, num_channels=2, 
-                 num_mod_types=6, num_sig_types=8):
+    def __init__(self, 
+                 signal_length=128, 
+                 num_channels=2, 
+                 num_mod_types=6, 
+                 num_sig_types=8):
         super(ConditionalDiscriminator, self).__init__()
         
-        # Enhanced embedding layers
+        # Enhanced embedding layers with SiLU activation
         self.mod_embedding = nn.Sequential(
             nn.Embedding(num_mod_types, 40),
             nn.Linear(40, 40),
-            nn.LeakyReLU(0.2)
+            nn.SiLU()
         )
         self.sig_embedding = nn.Sequential(
             nn.Embedding(num_sig_types, 40),
             nn.Linear(40, 40),
-            nn.LeakyReLU(0.2)
+            nn.SiLU()
         )
         
-        # More complex feature extraction with residual connections
+        # More efficient feature extraction
         self.conv_blocks = nn.ModuleList([
             nn.Sequential(
-                nn.Conv1d(num_channels, 32, kernel_size=3, stride=1, padding=1),
-                nn.BatchNorm1d(32),
-                nn.LeakyReLU(0.2),
-                nn.Dropout(0.3)
+                nn.utils.spectral_norm(nn.Conv1d(num_channels, 32, kernel_size=3, stride=1, padding=1)),
+                nn.GroupNorm(8, 32),
+                nn.SiLU(),
+                nn.Dropout(0.2)
             ),
             nn.Sequential(
-                nn.Conv1d(32, 64, kernel_size=3, stride=2, padding=1),
-                nn.BatchNorm1d(64),
-                nn.LeakyReLU(0.2),
-                nn.Dropout(0.3)
+                nn.utils.spectral_norm(nn.Conv1d(32, 64, kernel_size=3, stride=2, padding=1)),
+                nn.GroupNorm(16, 64),
+                nn.SiLU(),
+                nn.Dropout(0.2)
             ),
             nn.Sequential(
-                nn.Conv1d(64, 128, kernel_size=3, stride=2, padding=1),
-                nn.BatchNorm1d(128),
-                nn.LeakyReLU(0.2),
-                nn.Dropout(0.3)
+                nn.utils.spectral_norm(nn.Conv1d(64, 128, kernel_size=3, stride=2, padding=1)),
+                nn.GroupNorm(32, 128),
+                nn.SiLU(),
+                nn.Dropout(0.2)
             )
         ])
         
-        # Adaptive pooling to handle variable input sizes
-        self.adaptive_pool = nn.AdaptiveAvgPool1d(8)
+        # Adaptive pooling with reduced size
+        self.adaptive_pool = nn.AdaptiveAvgPool1d(4)  # Reduced from 8 to 4
         
-        # Classification head
+        # Optimized classification head
         self.fc = nn.Sequential(
-            nn.Linear(128 * 8 + 80, 256),
-            nn.LeakyReLU(0.2),
-            nn.Dropout(0.5),
+            nn.Linear(128 * 4 + 80, 256),  # Adjusted for reduced pooling
+            nn.SiLU(),
+            nn.Dropout(0.3),
             nn.Linear(256, 1),
             nn.Sigmoid()
         )
