@@ -166,7 +166,7 @@ def train_gan(config):
             signal_length=config.signal_length,
             normalize=True,
             shuffle=True,
-            num_workers=config.num_workers
+            num_workers=2
         )
     
     generator = ConditionalGenerator(
