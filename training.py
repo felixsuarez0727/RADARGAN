@@ -148,6 +148,7 @@ def train_gan(config):
     
     os.makedirs(config.output_dir, exist_ok=True)
     
+    # Crear o cargar el escritor de TensorBoard
     writer = SummaryWriter(log_dir=os.path.join(config.output_dir, 'logs'))
     
     if config.use_synthetic:
@@ -192,10 +193,42 @@ def train_gan(config):
     optimizer_G = optim.Adam(generator.parameters(), lr=config.lr, betas=(config.beta1, 0.999))
     optimizer_D = optim.Adam(discriminator.parameters(), lr=config.lr, betas=(config.beta1, 0.999))
     
-    adversarial_loss = nn.BCELoss()
-    
+    # Inicialización de variables para seguimiento del entrenamiento
     G_losses, D_losses = [], []
     real_scores, fake_scores = [], []
+    start_epoch = 0
+    global_step = 0
+    
+    # Cargar checkpoint si existe y si se especifica
+    if hasattr(config, 'resume_from_checkpoint') and config.resume_from_checkpoint:
+        checkpoint_path = config.resume_from_checkpoint
+        if os.path.isfile(checkpoint_path):
+            print(f"Loading checkpoint from {checkpoint_path}")
+            checkpoint = torch.load(checkpoint_path, map_location=device)
+            
+            # Cargar estado del modelo
+            generator.load_state_dict(checkpoint['generator_state_dict'])
+            discriminator.load_state_dict(checkpoint['discriminator_state_dict'])
+            
+            # Cargar estado de los optimizadores
+            optimizer_G.load_state_dict(checkpoint['optimizer_g_state_dict'])
+            optimizer_D.load_state_dict(checkpoint['optimizer_d_state_dict'])
+            
+            # Cargar historial de pérdidas
+            G_losses = checkpoint['g_losses']
+            D_losses = checkpoint['d_losses']
+            
+            # Establecer la época de inicio para continuar
+            start_epoch = checkpoint['epoch']
+            
+            # Calcular el paso global (aproximado si no está guardado)
+            global_step = start_epoch * len(dataloader)
+            
+            print(f"Resuming training from epoch {start_epoch}")
+        else:
+            print(f"Checkpoint not found at {checkpoint_path}, starting from scratch")
+    
+    adversarial_loss = nn.BCELoss()
     
     fixed_noise = torch.randn(16, config.noise_dim, device=device)
     fixed_mod_types = torch.tensor([i % len(MOD_TYPES) for i in range(16)], device=device)
@@ -204,12 +237,11 @@ def train_gan(config):
     n_critic = 1
     gp_lambda = 10
     
-    print("Starting training...")
-    total_steps = len(dataloader) * config.num_epochs
+    print(f"Starting training from epoch {start_epoch + 1} to {config.num_epochs}")
+    total_steps = len(dataloader) * (config.num_epochs - start_epoch)
     start_time = time.time()
-    global_step = 0
     
-    for epoch in range(config.num_epochs):
+    for epoch in range(start_epoch, config.num_epochs):
         for batch in tqdm(dataloader, desc=f"Epoch {epoch+1}/{config.num_epochs}"):
             real_signals = batch['signal'].to(device)
             mod_types = batch['mod_type'].to(device)
@@ -266,15 +298,15 @@ def train_gan(config):
             global_step += 1
             torch.cuda.empty_cache()
         
-        if (epoch + 1) % 10 == 0:
-            with torch.no_grad():
-                gen_signals = generator(fixed_noise, fixed_mod_types, fixed_sig_types)
-                visualize_signals(gen_signals, epoch+1, config.output_dir, fixed_mod_types, fixed_sig_types)
-            
-            save_checkpoint(
-                generator, discriminator, optimizer_G, optimizer_D,
-                epoch, G_losses, D_losses, config.output_dir
-            )
+        # Guardar checkpoint después de cada época
+        with torch.no_grad():
+            gen_signals = generator(fixed_noise, fixed_mod_types, fixed_sig_types)
+            visualize_signals(gen_signals, epoch+1, config.output_dir, fixed_mod_types, fixed_sig_types)
+        
+        save_checkpoint(
+            generator, discriminator, optimizer_G, optimizer_D,
+            epoch+1, G_losses, D_losses, config.output_dir
+        )
     
     save_checkpoint(
         generator, discriminator, optimizer_G, optimizer_D,

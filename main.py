@@ -28,6 +28,7 @@ def main():
     train_parser.add_argument("--num_workers", type=int, default=4, help="Number of workers for data loading")
     train_parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     train_parser.add_argument("--beta1", type=float, default=0.5, help="Beta1 for Adam optimizer")
+    train_parser.add_argument("--resume_from_checkpoint", type=str, help="Path to a checkpoint to resume training from")
 
     # Command: generate
     gen_parser = subparsers.add_parser("generate", help="Generate signals using a trained model")

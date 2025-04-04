@@ -2,6 +2,83 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+class Generator(nn.Module):
+    """
+    Base Generator for radar signal generation
+    """
+    def __init__(self, noise_dim=100, signal_length=128, num_channels=2):
+        super(Generator, self).__init__()
+        
+        self.init_size = signal_length // 4
+        self.noise_dim = noise_dim
+        
+        self.fc = nn.Sequential(
+            nn.Linear(noise_dim, 128 * self.init_size),
+            nn.BatchNorm1d(128 * self.init_size),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+        
+        self.conv_blocks = nn.Sequential(
+            nn.ConvTranspose1d(128, 64, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm1d(64),
+            nn.LeakyReLU(0.2, inplace=True),
+            
+            nn.ConvTranspose1d(64, 32, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm1d(32),
+            nn.LeakyReLU(0.2, inplace=True),
+            
+            nn.ConvTranspose1d(32, num_channels, kernel_size=3, stride=1, padding=1),
+            nn.Tanh()
+        )
+
+    def forward(self, z):
+        out = self.fc(z)
+        out = out.view(out.shape[0], 128, self.init_size)
+        out = self.conv_blocks(out)
+        return out
+
+class Discriminator(nn.Module):
+    """
+    Base Discriminator for radar signal classification
+    """
+    def __init__(self, signal_length=128, num_channels=2):
+        super(Discriminator, self).__init__()
+
+        self.conv_blocks = nn.Sequential(
+            nn.Conv1d(num_channels, 32, kernel_size=3, stride=1, padding=1),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Dropout(0.25),
+            nn.AvgPool1d(2),
+            
+            nn.Conv1d(32, 64, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm1d(64),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Dropout(0.25),
+            nn.AvgPool1d(2),
+            
+            nn.Conv1d(64, 128, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm1d(128),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Dropout(0.25),
+            nn.AvgPool1d(2),
+        )
+        
+        ds_size = signal_length // 8
+        
+        self.fc = nn.Sequential(
+            nn.Linear(128 * ds_size, 256),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Dropout(0.5),
+            nn.Linear(256, 1),
+            nn.Sigmoid()
+        )
+
+    def forward(self, img):
+        out = self.conv_blocks(img)
+        out = out.view(out.shape[0], -1)
+        validity = self.fc(out)
+        return validity
+
 class ConditionalGenerator(nn.Module):
     """
     Optimized Conditional Generator for radar signal generation
