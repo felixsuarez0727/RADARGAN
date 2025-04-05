@@ -81,7 +81,7 @@ class Discriminator(nn.Module):
 
 class ConditionalGenerator(nn.Module):
     """
-    Optimized Conditional Generator for radar signal generation
+    Optimized Conditional Generator for radar signal generation with improved diversity
     """
     def __init__(self, 
                  noise_dim=100, 
@@ -93,48 +93,84 @@ class ConditionalGenerator(nn.Module):
         
         self.init_size = signal_length // 4
         self.noise_dim = noise_dim
+        self.signal_length = signal_length
         
-        # More efficient embedding layers
+        # Embedding dimension más grande
+        embedding_dim = 64
+        
+        # Capa de embedding más profunda para modulation type
         self.mod_embedding = nn.Sequential(
-            nn.Embedding(num_mod_types, 40),
-            nn.Linear(40, 40),
-            nn.SiLU()  # Faster activation function
+            nn.Embedding(num_mod_types, embedding_dim),
+            nn.Linear(embedding_dim, embedding_dim),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Linear(embedding_dim, embedding_dim),
+            nn.LeakyReLU(0.2, inplace=True)
         )
         
+        # Capa de embedding más profunda para signal type
         self.sig_embedding = nn.Sequential(
-            nn.Embedding(num_sig_types, 40),
-            nn.Linear(40, 40),
-            nn.SiLU()
+            nn.Embedding(num_sig_types, embedding_dim),
+            nn.Linear(embedding_dim, embedding_dim),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Linear(embedding_dim, embedding_dim),
+            nn.LeakyReLU(0.2, inplace=True)
         )
         
         # Initial processing with more efficient normalization
         self.fc = nn.Sequential(
-            nn.Linear(noise_dim + 80, 256 * self.init_size),
-            nn.LayerNorm(256 * self.init_size),  # More GPU-friendly normalization
-            nn.SiLU(),
-            nn.Dropout(0.2)  # Slightly reduced dropout
+            nn.Linear(noise_dim + 2*embedding_dim, 256 * self.init_size),
+            nn.LayerNorm(256 * self.init_size),
+            nn.LeakyReLU(0.2),
+            nn.Dropout(0.3)
+        )
+        
+        # Bloque residual para mejores gradientes
+        self.res_block = nn.Sequential(
+            nn.ConvTranspose1d(256, 256, kernel_size=3, stride=1, padding=1),
+            nn.GroupNorm(32, 256),
+            nn.LeakyReLU(0.2),
+            nn.Dropout(0.3),
+            nn.ConvTranspose1d(256, 256, kernel_size=3, stride=1, padding=1),
+            nn.GroupNorm(32, 256)
         )
         
         # Enhanced transposed convolutional layers
         self.conv_blocks = nn.Sequential(
             # First block with spectral normalization
+            nn.LeakyReLU(0.2),
             nn.utils.spectral_norm(nn.ConvTranspose1d(256, 128, kernel_size=4, stride=2, padding=1)),
             nn.GroupNorm(32, 128),  # More efficient normalization
-            nn.SiLU(),
-            nn.Dropout(0.2),
+            nn.LeakyReLU(0.2),
+            nn.Dropout(0.3),
             
             nn.utils.spectral_norm(nn.ConvTranspose1d(128, 64, kernel_size=4, stride=2, padding=1)),
             nn.GroupNorm(16, 64),
-            nn.SiLU(),
+            nn.LeakyReLU(0.2),
             nn.Dropout(0.2),
             
             nn.utils.spectral_norm(nn.ConvTranspose1d(64, 32, kernel_size=3, stride=1, padding=1)),
             nn.GroupNorm(8, 32),
-            nn.SiLU(),
+            nn.LeakyReLU(0.2),
             
             nn.ConvTranspose1d(32, num_channels, kernel_size=3, stride=1, padding=1),
             nn.Tanh()
         )
+        
+        # Inicializar pesos para mejor convergencia
+        self._initialize_weights()
+    
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv1d) or isinstance(m, nn.ConvTranspose1d):
+                nn.init.normal_(m.weight, 0.0, 0.02)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.GroupNorm) or isinstance(m, nn.LayerNorm):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0.0, 0.02)
+                nn.init.constant_(m.bias, 0)
 
     def forward(self, z, mod_type, sig_type):
         # Get embeddings for conditions
@@ -147,6 +183,13 @@ class ConditionalGenerator(nn.Module):
         # Generate signal
         out = self.fc(z_condition)
         out = out.view(out.shape[0], 256, self.init_size)
+        
+        # Aplicar bloque residual
+        residual = out
+        out = self.res_block(out)
+        out = out + residual  # Conexión residual
+        
+        # Aplicar bloques convolucionales
         out = self.conv_blocks(out)
         
         return out
@@ -162,16 +205,23 @@ class ConditionalDiscriminator(nn.Module):
                  num_sig_types=8):
         super(ConditionalDiscriminator, self).__init__()
         
-        # Enhanced embedding layers with SiLU activation
+        # Embedding dimension más grande
+        embedding_dim = 64
+        
+        # Enhanced embedding layers with LeakyReLU activation
         self.mod_embedding = nn.Sequential(
-            nn.Embedding(num_mod_types, 40),
-            nn.Linear(40, 40),
-            nn.SiLU()
+            nn.Embedding(num_mod_types, embedding_dim),
+            nn.Linear(embedding_dim, embedding_dim),
+            nn.LeakyReLU(0.2),
+            nn.Linear(embedding_dim, embedding_dim),
+            nn.LeakyReLU(0.2)
         )
         self.sig_embedding = nn.Sequential(
-            nn.Embedding(num_sig_types, 40),
-            nn.Linear(40, 40),
-            nn.SiLU()
+            nn.Embedding(num_sig_types, embedding_dim),
+            nn.Linear(embedding_dim, embedding_dim),
+            nn.LeakyReLU(0.2),
+            nn.Linear(embedding_dim, embedding_dim),
+            nn.LeakyReLU(0.2)
         )
         
         # More efficient feature extraction
@@ -179,19 +229,19 @@ class ConditionalDiscriminator(nn.Module):
             nn.Sequential(
                 nn.utils.spectral_norm(nn.Conv1d(num_channels, 32, kernel_size=3, stride=1, padding=1)),
                 nn.GroupNorm(8, 32),
-                nn.SiLU(),
+                nn.LeakyReLU(0.2),
                 nn.Dropout(0.2)
             ),
             nn.Sequential(
                 nn.utils.spectral_norm(nn.Conv1d(32, 64, kernel_size=3, stride=2, padding=1)),
                 nn.GroupNorm(16, 64),
-                nn.SiLU(),
+                nn.LeakyReLU(0.2),
                 nn.Dropout(0.2)
             ),
             nn.Sequential(
                 nn.utils.spectral_norm(nn.Conv1d(64, 128, kernel_size=3, stride=2, padding=1)),
                 nn.GroupNorm(32, 128),
-                nn.SiLU(),
+                nn.LeakyReLU(0.2),
                 nn.Dropout(0.2)
             )
         ])
@@ -201,8 +251,8 @@ class ConditionalDiscriminator(nn.Module):
         
         # Optimized classification head
         self.fc = nn.Sequential(
-            nn.Linear(128 * 4 + 80, 256),  # Adjusted for reduced pooling
-            nn.SiLU(),
+            nn.Linear(128 * 4 + 2*embedding_dim, 256),  # Adjusted for reduced pooling and larger embeddings
+            nn.LeakyReLU(0.2),
             nn.Dropout(0.3),
             nn.Linear(256, 1),
             nn.Sigmoid()
@@ -228,3 +278,25 @@ class ConditionalDiscriminator(nn.Module):
         # Final classification
         validity = self.fc(features_condition)
         return validity
+    
+    def features(self, img, mod_type, sig_type):
+        """
+        Extrae características intermedias para feature matching
+        """
+        # Get embeddings
+        mod_embed = self.mod_embedding(mod_type)
+        sig_embed = self.sig_embedding(sig_type)
+        
+        # Feature extraction
+        features = img
+        feature_maps = []
+        for conv_block in self.conv_blocks:
+            features = conv_block(features)
+            feature_maps.append(features)
+        
+        # Adaptive pooling
+        features = self.adaptive_pool(features)
+        features = features.view(features.shape[0], -1)
+        
+        # Retornar el tensor de características antes de la capa final
+        return features
