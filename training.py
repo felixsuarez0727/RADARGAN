@@ -106,10 +106,10 @@ def save_loss_history(g_losses, d_losses, real_scores, fake_scores, output_dir):
     """
     Saves and visualizes loss history with improved plotting
     """
-    # Para el DataFrame, asegurar que todos los arrays tengan la misma longitud
+    # For the DataFrame, ensure all arrays have the same length
     min_length = min(len(g_losses), len(d_losses), len(real_scores), len(fake_scores))
     
-    # Solo para el CSV, truncar a la misma longitud
+    # Only for the CSV, truncate to the same length
     df = pd.DataFrame({
         'G_loss': g_losses[:min_length],
         'D_loss': d_losses[:min_length],
@@ -121,7 +121,7 @@ def save_loss_history(g_losses, d_losses, real_scores, fake_scores, output_dir):
     df.to_csv(csv_path, index_label='step')
     print(f"Loss history saved to {csv_path}")
     
-    # Para las gráficas NO truncar, usar los arrays completos
+    # For the plots, DO NOT truncate, use the complete arrays
     plt.figure(figsize=(12, 6))
     plt.plot(range(len(g_losses)), g_losses, label='Generator')
     plt.plot(range(len(d_losses)), d_losses, label='Discriminator')
@@ -133,10 +133,10 @@ def save_loss_history(g_losses, d_losses, real_scores, fake_scores, output_dir):
     plt.savefig(os.path.join(output_dir, 'loss_plot.png'), dpi=150)
     plt.close()
     
-    # CORREGIR: Graficar scores del discriminador con valores correctos
+    # FIX: Plot discriminator scores with correct values
     plt.figure(figsize=(12, 6))
     
-    # Asegurarse de que los valores no sean None o NaN
+    # Make sure the values aren't None or NaN
     real_scores_clean = [x for x in real_scores if x is not None and not np.isnan(x)]
     fake_scores_clean = [x for x in fake_scores if x is not None and not np.isnan(x)]
     
@@ -153,28 +153,28 @@ def save_loss_history(g_losses, d_losses, real_scores, fake_scores, output_dir):
         print("WARNING: No valid discriminator scores to plot")
     plt.close()
     
-    # Graficar también las últimas 1000 iteraciones para ver el comportamiento reciente
+    # Also plot the last 1000 iterations to see recent behavior
     plt.figure(figsize=(12, 6))
     
-    # Solo mostrar las últimas 1000 iteraciones (o menos si hay menos datos)
+    # Only show the last 1000 iterations (or fewer if there's less data)
     last_n = 1000
     g_tail = g_losses[-last_n:] if len(g_losses) > last_n else g_losses
     d_tail = d_losses[-last_n:] if len(d_losses) > last_n else d_losses
     
     plt.plot(range(len(g_tail)), g_tail, label='Generator')
     plt.plot(range(len(d_tail)), d_tail, label='Discriminator')
-    plt.xlabel('Training Steps (últimas iteraciones)')
+    plt.xlabel('Training Steps (last iterations)')
     plt.ylabel('Loss')
     plt.legend()
-    plt.title('GAN Training Losses (Últimas Iteraciones)')
+    plt.title('GAN Training Losses (Recent Iterations)')
     plt.grid(True, alpha=0.3)
     plt.savefig(os.path.join(output_dir, 'loss_plot_recent.png'), dpi=150)
     plt.close()
     
-    # CORREGIR: Gráfica de scores recientes
+    # FIX: Graph of recent scores
     plt.figure(figsize=(12, 6))
     
-    # Limpiar valores
+    # Clean values
     real_scores_clean = [x for x in real_scores if x is not None and not np.isnan(x)]
     fake_scores_clean = [x for x in fake_scores if x is not None and not np.isnan(x)]
     
@@ -185,29 +185,29 @@ def save_loss_history(g_losses, d_losses, real_scores, fake_scores, output_dir):
         plt.plot(range(len(real_tail)), real_tail, label='Real Signals')
         plt.plot(range(len(fake_tail)), fake_tail, label='Fake Signals')
         
-        # Intentar ajustar el rango del eje y para mejor visualización
+        # Try to adjust the y-axis range for better visualization
         min_score = min(min(real_tail) if real_tail else 1, min(fake_tail) if fake_tail else 1)
         max_score = max(max(real_tail) if real_tail else 0, max(fake_tail) if fake_tail else 0)
-        margin = (max_score - min_score) * 0.1  # 10% de margen
+        margin = (max_score - min_score) * 0.1  # 10% margin
         plt.ylim(min_score - margin, max_score + margin)
         
-        plt.xlabel('Training Steps (últimas iteraciones)')
+        plt.xlabel('Training Steps (last iterations)')
         plt.ylabel('Discriminator Score')
         plt.legend()
-        plt.title('Discriminator Scores (Últimas Iteraciones)')
+        plt.title('Discriminator Scores (Recent Iterations)')
         plt.grid(True, alpha=0.3)
         plt.savefig(os.path.join(output_dir, 'score_plot_recent.png'), dpi=150)
     else:
         print("WARNING: No valid recent discriminator scores to plot")
     plt.close()
     
-    # DEPURACIÓN: Imprimir información sobre los arrays para diagnosticar problemas
-    print("Longitudes de los arrays:")
+    # DEBUGGING: Print information about the arrays to diagnose problems
+    print("Array lengths:")
     print(f"G_losses: {len(g_losses)}, D_losses: {len(d_losses)}")
     print(f"real_scores: {len(real_scores)}, fake_scores: {len(fake_scores)}")
     
     if len(real_scores) > 0 and len(fake_scores) > 0:
-        print("Valores estadísticos:")
+        print("Statistical values:")
         real_np = np.array(real_scores_clean)
         fake_np = np.array(fake_scores_clean)
         print(f"real_scores - min: {np.min(real_np):.4f}, max: {np.max(real_np):.4f}, mean: {np.mean(real_np):.4f}")
@@ -228,27 +228,27 @@ def train_gan(config):
     
     writer = SummaryWriter(log_dir=os.path.join(config.output_dir, 'logs'))
     
-    # Añadir estos parámetros para controlar el balance de entrenamiento
+    # Add these parameters to control training balance
     if hasattr(config, 'n_critic'):
         n_critic = config.n_critic
     else:
-        n_critic = 5  # Entrenar el discriminador 5 veces por cada actualización del generador
+        n_critic = 5  # Train the discriminator 5 times for each generator update
     
     if hasattr(config, 'gp_lambda'):
         gp_lambda = config.gp_lambda
     else:
-        gp_lambda = 15.0  # Aumentar la penalización del gradiente
+        gp_lambda = 15.0  # Increase gradient penalty
     
-    # Configurar Learning Rates diferentes para generador y discriminador
+    # Configure different Learning Rates for generator and discriminator
     if hasattr(config, 'lr_g') and config.lr_g is not None:
         lr_g = config.lr_g
     else:
-        lr_g = config.lr * 0.5  # Menor tasa para el generador para evitar que aprenda demasiado rápido
+        lr_g = config.lr * 0.5  # Lower rate for the generator to prevent learning too quickly
     
     if hasattr(config, 'lr_d') and config.lr_d is not None:
         lr_d = config.lr_d
     else:
-        lr_d = config.lr  # Mantener tasa original para el discriminador
+        lr_d = config.lr  # Keep original rate for the discriminator
     
     if config.use_synthetic:
         print("Loading synthetic dataset...")
@@ -284,7 +284,7 @@ def train_gan(config):
         num_sig_types=len(SIGNAL_TYPES)
     ).to(device)
     
-    # SOLUCIÓN RÁPIDA: Cargar automáticamente desde el checkpoint final anterior
+    # QUICK FIX: Automatically load from previous final checkpoint
     checkpoint_path = os.path.join(config.output_dir, 'checkpoints', 'final_model.pth')
     G_losses, D_losses = [], []
     real_scores, fake_scores = [], []
@@ -292,14 +292,14 @@ def train_gan(config):
     global_step = 0
     
     if os.path.isfile(checkpoint_path):
-        print(f"Cargando automáticamente el checkpoint desde {checkpoint_path}")
+        print(f"Automatically loading checkpoint from {checkpoint_path}")
         checkpoint = torch.load(checkpoint_path, map_location=device)
         
-        # Cargar estado del modelo
+        # Load model state
         generator.load_state_dict(checkpoint['generator_state_dict'])
         discriminator.load_state_dict(checkpoint['discriminator_state_dict'])
         
-        # Cargar historial de pérdidas si está disponible
+        # Load loss history if available
         if 'g_losses' in checkpoint:
             G_losses = checkpoint['g_losses']
         if 'd_losses' in checkpoint:
@@ -309,15 +309,15 @@ def train_gan(config):
         if 'fake_scores' in checkpoint:
             fake_scores = checkpoint['fake_scores']
         
-        # Establecer la época de inicio para continuar
+        # Set starting epoch to continue
         start_epoch = checkpoint['epoch']
         
-        # Calcular el paso global (aproximado si no está guardado)
+        # Calculate global step (approximate if not saved)
         global_step = start_epoch * len(dataloader)
         
-        print(f"Continuando entrenamiento desde la época {start_epoch}")
+        print(f"Continuing training from epoch {start_epoch}")
     else:
-        print("No se encontró checkpoint para cargar, comenzando desde cero")
+        print("No checkpoint found to load, starting from scratch")
         start_epoch = 0
     
     if torch.cuda.device_count() > 1:
@@ -325,15 +325,15 @@ def train_gan(config):
         generator = nn.DataParallel(generator)
         discriminator = nn.DataParallel(discriminator)
     
-    # Usar tasas de aprendizaje diferentes
+    # Use different learning rates
     optimizer_G = optim.Adam(generator.parameters(), lr=lr_g, betas=(config.beta1, 0.999))
     optimizer_D = optim.Adam(discriminator.parameters(), lr=lr_d, betas=(config.beta1, 0.999))
     
-    # Cargar optimizadores si está disponible
+    # Load optimizers if available
     if os.path.isfile(checkpoint_path) and 'optimizer_g_state_dict' in checkpoint and 'optimizer_d_state_dict' in checkpoint:
         optimizer_G.load_state_dict(checkpoint['optimizer_g_state_dict'])
         optimizer_D.load_state_dict(checkpoint['optimizer_d_state_dict'])
-        print("Optimizadores cargados con éxito")
+        print("Optimizers loaded successfully")
     
     adversarial_loss = nn.BCELoss()
     
@@ -356,35 +356,35 @@ def train_gan(config):
             fake_label = torch.zeros(batch_size, 1, device=device)
             
             # ---------------------
-            # Entrenar Discriminador
+            # Train Discriminator
             # ---------------------
             for _ in range(n_critic):
                 optimizer_D.zero_grad()
                 
-                # Generar ruido aleatorio con varianza adaptativa
-                z_std = 1.0 + 0.1 * np.random.random()  # Varianza variable para diversidad
+                # Generate random noise with adaptive variance
+                z_std = 1.0 + 0.1 * np.random.random()  # Variable variance for diversity
                 z = torch.randn(batch_size, config.noise_dim, device=device) * z_std
                 
-                # Añadir ruido a las etiquetas reales para label smoothing
+                # Add noise to real labels for label smoothing
                 real_smooth = real_label - 0.1 * torch.rand_like(real_label)
                 
-                # Evaluar discriminador en datos reales
+                # Evaluate discriminator on real data
                 real_pred = discriminator(real_signals, mod_types, sig_types)
                 d_real_loss = adversarial_loss(real_pred, real_smooth)
                 
-                # Generar señales falsas
+                # Generate fake signals
                 with torch.no_grad():
                     gen_signals = generator(z, mod_types, sig_types)
                 
-                # Añadir pequeño ruido a las señales generadas para mejorar estabilidad
+                # Add small noise to generated signals to improve stability
                 noise_level = 0.05
                 gen_signals_noisy = gen_signals + noise_level * torch.randn_like(gen_signals)
                 
-                # Evaluar discriminador en datos generados
+                # Evaluate discriminator on generated data
                 fake_pred = discriminator(gen_signals_noisy.detach(), mod_types, sig_types)
                 d_fake_loss = adversarial_loss(fake_pred, fake_label)
                 
-                # Penalización del gradiente para WGAN-GP
+                # Gradient penalty for WGAN-GP
                 gp = gradient_penalty(
                     real_signals, 
                     gen_signals.detach(), 
@@ -394,46 +394,46 @@ def train_gan(config):
                     sig_types
                 )
                 
-                # Pérdida total del discriminador
+                # Total discriminator loss
                 d_loss = d_real_loss + d_fake_loss + gp_lambda * gp
                 
                 d_loss.backward()
                 optimizer_D.step()
             
             # -----------------
-            # Entrenar Generador
+            # Train Generator
             # -----------------
             optimizer_G.zero_grad()
             
-            # Generar nuevo ruido para el generador
+            # Generate new noise for the generator
             z = torch.randn(batch_size, config.noise_dim, device=device)
             
-            # Generar señales
+            # Generate signals
             gen_signals = generator(z, mod_types, sig_types)
             
-            # Calcular pérdida del generador
+            # Calculate generator loss
             g_validity = discriminator(gen_signals, mod_types, sig_types)
             
-            # Feature matching loss (tomando características intermedias del discriminador)
+            # Feature matching loss (taking intermediate features from the discriminator)
             try:
                 real_features = discriminator.features(real_signals, mod_types, sig_types)
                 fake_features = discriminator.features(gen_signals, mod_types, sig_types)
                 feature_loss = torch.mean(torch.abs(real_features.mean(0) - fake_features.mean(0)))
                 g_loss = adversarial_loss(g_validity, real_label) + 0.1 * feature_loss
             except (AttributeError, TypeError):
-                # Si el discriminador no tiene la función 'features' o hay un error
+                # If the discriminator doesn't have the 'features' function or there's an error
                 g_loss = adversarial_loss(g_validity, real_label)
             
             g_loss.backward()
             optimizer_G.step()
             
-            # Registrar valores de pérdida y puntuaciones
+            # Record loss values and scores
             G_losses.append(g_loss.item())
             D_losses.append(d_loss.item())
             real_scores.append(real_pred.mean().item())
             fake_scores.append(fake_pred.mean().item())
             
-            # Logging a TensorBoard
+            # Logging to TensorBoard
             writer.add_scalar('Loss/Generator', g_loss.item(), global_step)
             writer.add_scalar('Loss/Discriminator', d_loss.item(), global_step)
             writer.add_scalar('Score/Real', real_pred.mean().item(), global_step)
@@ -441,20 +441,21 @@ def train_gan(config):
             
             global_step += 1
             
-            # Limpiar memoria
+            # Clear memory
             torch.cuda.empty_cache() if torch.cuda.is_available() else None
         
-        if (epoch + 1) % 10 == 0:
-            with torch.no_grad():
-                gen_signals = generator(fixed_noise, fixed_mod_types, fixed_sig_types)
-                visualize_signals(gen_signals, epoch+1, config.output_dir, fixed_mod_types, fixed_sig_types)
-            
-            save_checkpoint(
-                generator, discriminator, optimizer_G, optimizer_D,
-                epoch+1, G_losses, D_losses, real_scores, fake_scores, config.output_dir
-            )
         
-        # Guardar visualización después de cada época
+        with torch.no_grad():
+            gen_signals = generator(fixed_noise, fixed_mod_types, fixed_sig_types)
+            visualize_signals(gen_signals, epoch+1, config.output_dir, fixed_mod_types, fixed_sig_types)
+        
+        # Save checkpoint at the end of each epoch
+        save_checkpoint(
+            generator, discriminator, optimizer_G, optimizer_D,
+            epoch+1, G_losses, D_losses, real_scores, fake_scores, config.output_dir
+        )
+        
+        # Save visualization after each epoch
         with torch.no_grad():
             gen_signals = generator(fixed_noise, fixed_mod_types, fixed_sig_types)
             visualize_signals(gen_signals, epoch+1, config.output_dir, fixed_mod_types, fixed_sig_types)

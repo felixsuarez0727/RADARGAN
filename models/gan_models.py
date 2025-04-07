@@ -95,10 +95,10 @@ class ConditionalGenerator(nn.Module):
         self.noise_dim = noise_dim
         self.signal_length = signal_length
         
-        # Embedding dimension más grande
+        # Larger embedding dimension
         embedding_dim = 64
         
-        # Capa de embedding más profunda para modulation type
+        # Deeper embedding layer for modulation type
         self.mod_embedding = nn.Sequential(
             nn.Embedding(num_mod_types, embedding_dim),
             nn.Linear(embedding_dim, embedding_dim),
@@ -107,7 +107,7 @@ class ConditionalGenerator(nn.Module):
             nn.LeakyReLU(0.2, inplace=True)
         )
         
-        # Capa de embedding más profunda para signal type
+        # Deeper embedding layer for signal type
         self.sig_embedding = nn.Sequential(
             nn.Embedding(num_sig_types, embedding_dim),
             nn.Linear(embedding_dim, embedding_dim),
@@ -124,7 +124,7 @@ class ConditionalGenerator(nn.Module):
             nn.Dropout(0.3)
         )
         
-        # Bloque residual para mejores gradientes
+        # Residual block for better gradients
         self.res_block = nn.Sequential(
             nn.ConvTranspose1d(256, 256, kernel_size=3, stride=1, padding=1),
             nn.GroupNorm(32, 256),
@@ -156,7 +156,7 @@ class ConditionalGenerator(nn.Module):
             nn.Tanh()
         )
         
-        # Inicializar pesos para mejor convergencia
+        # Initialize weights for better convergence
         self._initialize_weights()
     
     def _initialize_weights(self):
@@ -184,12 +184,12 @@ class ConditionalGenerator(nn.Module):
         out = self.fc(z_condition)
         out = out.view(out.shape[0], 256, self.init_size)
         
-        # Aplicar bloque residual
+        # Apply residual block
         residual = out
         out = self.res_block(out)
-        out = out + residual  # Conexión residual
+        out = out + residual  # Residual connection
         
-        # Aplicar bloques convolucionales
+        # Apply convolutional blocks
         out = self.conv_blocks(out)
         
         return out
@@ -205,7 +205,7 @@ class ConditionalDiscriminator(nn.Module):
                  num_sig_types=8):
         super(ConditionalDiscriminator, self).__init__()
         
-        # Embedding dimension más grande
+        # Larger embedding dimension
         embedding_dim = 64
         
         # Enhanced embedding layers with LeakyReLU activation
@@ -281,7 +281,7 @@ class ConditionalDiscriminator(nn.Module):
     
     def features(self, img, mod_type, sig_type):
         """
-        Extrae características intermedias para feature matching
+        Extracts intermediate features for feature matching
         """
         # Get embeddings
         mod_embed = self.mod_embedding(mod_type)
@@ -298,5 +298,5 @@ class ConditionalDiscriminator(nn.Module):
         features = self.adaptive_pool(features)
         features = features.view(features.shape[0], -1)
         
-        # Retornar el tensor de características antes de la capa final
+        # Return the feature tensor before the final layer
         return features

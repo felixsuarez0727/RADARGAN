@@ -38,6 +38,7 @@ def main():
     gen_parser.add_argument("--sig_type", type=str, help="Specific signal type to generate")
     gen_parser.add_argument("--export_hdf5", action="store_true", help="Export signals to HDF5")
     gen_parser.add_argument("--no_cuda", action="store_true", help="Disable CUDA")
+    gen_parser.add_argument("--enhance_diversity", action="store_true", help="Apply diversity enhancement techniques")
     
     # Command: evaluate
     eval_parser = subparsers.add_parser("evaluate", help="Evaluate a trained model")
@@ -115,7 +116,8 @@ def main():
             generator, 
             num_samples=args.num_samples,
             device=device,
-            specific_config=specific_config
+            specific_config=specific_config,
+            enhance_diversity=args.enhance_diversity
         )
         
         # Visualize signals
@@ -140,8 +142,9 @@ def main():
         from inference import load_generator
         from dataset import get_dataloader, MOD_TYPES, SIGNAL_TYPES
         from models import ConditionalDiscriminator
+        from enhanced_generation import generate_diverse_signals_for_evaluation
         
-        print("== Evaluating RadarGAN ==")
+        print("== Evaluating RadarGAN with enhanced diversity ==")
         
         # Configure device
         device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
@@ -198,7 +201,10 @@ def main():
                 )
                 print("\nDiscriminator metrics:")
                 for k, v in metrics.items():
-                    print(f"{k}: {v:.4f}")
+                    if isinstance(v, float):
+                        print(f"{k}: {v:.4f}")
+                    else:
+                        print(f"{k}: {v}")
             else:
                 print("Discriminator state dict not found in checkpoint, skipping evaluation")
 
